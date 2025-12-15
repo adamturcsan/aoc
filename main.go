@@ -578,106 +578,86 @@ func findAllStringStartIndex(re *regexp.Regexp, input string, n int) (map[int]in
 
 func dayEight() {
 	inputData := make(chan string)
-	go readFileLineByLine("day8Test.txt", inputData)
+	// go readFileLineByLine("day8Test.txt", inputData)
+	// maxSteps := 10
+	go readFileLineByLine("day8Input.txt", inputData)
+	maxSteps := 1000
 
 	points := make(map[string]Point)
+	index := 0
 	for line := range inputData {
-		points[line] = point(line)
+		points[line] = point(line, index)
+		index++
 	}
 
-	connections := make(map[string]Connection)
-	for _, basePoint := range points {
-		for _, point := range points {
-			if point.Name == basePoint.Name {
-				continue
-			}
-			connection := Connection{basePoint, point, distance(basePoint, point)}
-			connections[connection.GetName()] = connection
+	// circuits := make(map[int]*Circuit)
+	var circuits []*Circuit
+	connectionSteps := 0
+	for _, pair := range sortedPairs(points) {
+		if connectionSteps == maxSteps {
+			break
 		}
-	}
+		connectionSteps++
 
-	sortedConnections := make([]Connection, 0, len(connections))
-	connectionKeys := make([]string, 0, len(connections))
-	for key := range connections {
-		connectionKeys = append(connectionKeys, key)
-	}
-
-	slices.SortStableFunc(connectionKeys, func(k1, k2 string) int {
-		if connections[k1].Distance < connections[k2].Distance {
-			return -1
-		}
-		if connections[k1].Distance > connections[k2].Distance {
-			return 1
-		}
-		return 0
-	})
-
-	for _, connKey := range connectionKeys {
-		fmt.Println(connections[connKey])
-		sortedConnections = append(sortedConnections, connections[connKey])
-	}
-
-	os.Exit(0)
-	var circuits []Circuit
-	newConnection := 0
-	for _, conn := range sortedConnections {
 		needsNew := true
+		circuitIdsToBeMerged := findCircuitsToBeMerged(pair, circuits)
+		if len(circuitIdsToBeMerged) == 2 {
+			for _, conn := range circuits[circuitIdsToBeMerged[0]].Connections {
+				circuits[circuitIdsToBeMerged[1]].AddConnection(conn)
+			}
+			var newCircuits []*Circuit
+			newCircuits = append(newCircuits, circuits[:circuitIdsToBeMerged[0]]...)
+			newCircuits = append(newCircuits, circuits[circuitIdsToBeMerged[0]+1:]...)
+			circuits = newCircuits
+			continue
+		}
+
 		for cIndex, cValue := range circuits {
-			if cValue.HasConnection(conn) || (cValue.HasPoint(conn.Left) && cValue.HasPoint(conn.Right)) {
-				fmt.Println("Has connection or both points:")
-				fmt.Println(conn.GetName())
-				fmt.Println(cValue.Print())
+			if cValue.HasPoint(pair.Left) && cValue.HasPoint(pair.Right) {
 				needsNew = false
 				break
 			}
-			if cValue.HasPoint(conn.Left) || cValue.HasPoint(conn.Right) {
-				fmt.Println("Has point:")
-				fmt.Println(conn.GetName())
-				fmt.Println(cValue.Print())
-				circuits[cIndex].AddConnection(conn)
+			if cValue.HasPoint(pair.Left) || cValue.HasPoint(pair.Right) {
+				circuits[cIndex].AddConnection(pair)
 				needsNew = false
-				newConnection++
 				break
 			}
 		}
 		if needsNew {
-			fmt.Println("Needs new circuit:")
-			fmt.Println(conn.GetName())
-			circuit := Circuit{make(map[string]Connection)}
-			circuit.AddConnection(conn)
-			fmt.Println(circuit.Print())
-			circuits = append(circuits, circuit)
-			newConnection++
+			circuit := Circuit{len(circuits), make(map[string]Connection)}
+			circuit.AddConnection(pair)
+			circuits = append(circuits, &circuit)
 		}
-		if newConnection == 10 {
-			break
-		}
-		fmt.Println()
 	}
 
-	fmt.Println()
+	// for _, c := range circuits {
+	// 	fmt.Println(c.Print())
+	// }
+	// fmt.Println()
+
 	answer := 1
 	for _, c := range largestThreeCircuits(circuits) {
 		answer *= c.Size()
-		// fmt.Println(c.Print())
+		fmt.Println(c.Print())
 	}
 
 	fmt.Printf("eigth day first answer: %d\n", answer)
 }
 
-func point(name string) Point {
+func point(name string, index int) Point {
 	coords := strings.Split(name, ",")
 	x, _ := strconv.Atoi(coords[0])
 	y, _ := strconv.Atoi(coords[1])
 	z, _ := strconv.Atoi(coords[2])
-	return Point{x, y, z, name}
+	return Point{index, x, y, z, name}
 }
 
 type Point struct {
-	X    int
-	Y    int
-	Z    int
-	Name string
+	Index int
+	X     int
+	Y     int
+	Z     int
+	Name  string
 }
 
 type Connection struct {
@@ -704,6 +684,7 @@ func (c Connection) GetName() string {
 }
 
 type Circuit struct {
+	Id          int
 	Connections map[string]Connection
 }
 
@@ -740,11 +721,11 @@ func (c Circuit) Size() int {
 
 func (c Circuit) Print() string {
 	connNames := make([]string, 0, len(c.Connections))
-	points := make(map[string]Point)
+	points := make(map[string]bool)
 	for _, c := range c.Connections {
-		connNames = append(connNames, c.GetName())
-		points[c.Left.Name] = c.Left
-		points[c.Right.Name] = c.Right
+		connNames = append(connNames, fmt.Sprintf("%d-%d", c.Left.Index, c.Right.Index))
+		points[c.Left.Name] = true
+		points[c.Right.Name] = true
 	}
 	return fmt.Sprintf("[NumberOfPoints: %d, Connections: %s]", len(points), strings.Join(connNames, ", "))
 }
@@ -753,9 +734,9 @@ func distance(p1, p2 Point) float64 {
 	return math.Sqrt(math.Pow(float64(p1.X)-float64(p2.X), 2) + math.Pow(float64(p1.Y)-float64(p2.Y), 2) + math.Pow(float64(p1.Z)-float64(p2.Z), 2))
 }
 
-func largestThreeCircuits(circuits []Circuit) []Circuit {
+func largestThreeCircuits(circuits []*Circuit) []*Circuit {
 
-	largestCircuits := make([]Circuit, 0, 3)
+	largestCircuits := make([]*Circuit, 0, 3)
 	circuitKeys := make([]int, 0, len(circuits))
 	for key := range circuits {
 		circuitKeys = append(circuitKeys, key)
@@ -770,14 +751,58 @@ func largestThreeCircuits(circuits []Circuit) []Circuit {
 		}
 		return 0
 	})
-	for _, k := range circuitKeys {
-		fmt.Println(circuits[k].Size())
-	}
-	os.Exit(0)
 
 	for i := range 3 {
 		largestCircuits = append(largestCircuits, circuits[circuitKeys[i]])
 	}
 
 	return largestCircuits
+}
+
+func sortedPairs(points map[string]Point) []Connection {
+	connections := make(map[string]Connection)
+	for _, basePoint := range points {
+		for _, point := range points {
+			if point.Name == basePoint.Name {
+				continue
+			}
+			connection := Connection{basePoint, point, distance(basePoint, point)}
+			connections[connection.GetName()] = connection
+		}
+	}
+
+	sortedConnections := make([]Connection, 0, len(connections))
+	connectionKeys := make([]string, 0, len(connections))
+	for key := range connections {
+		connectionKeys = append(connectionKeys, key)
+	}
+
+	slices.SortStableFunc(connectionKeys, func(k1, k2 string) int {
+		if connections[k1].Distance < connections[k2].Distance {
+			return -1
+		}
+		if connections[k1].Distance > connections[k2].Distance {
+			return 1
+		}
+		return 0
+	})
+
+	for _, connKey := range connectionKeys {
+		sortedConnections = append(sortedConnections, connections[connKey])
+	}
+	return sortedConnections
+}
+
+func findCircuitsToBeMerged(connection Connection, circuits []*Circuit) []int {
+	idsToMerge := make([]int, 0, 2)
+	for key := range circuits {
+		c := circuits[key]
+		if c.HasPoint(connection.Left) && !c.HasPoint(connection.Right) {
+			idsToMerge = append(idsToMerge, key)
+		}
+		if c.HasPoint(connection.Right) && !c.HasPoint(connection.Left) {
+			idsToMerge = append(idsToMerge, key)
+		}
+	}
+	return idsToMerge
 }
