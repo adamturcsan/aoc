@@ -18,7 +18,7 @@ func main() {
 	// dayFive()
 	// daySix()
 	// daySeven()
-	dayEight()
+	// dayEight()
 }
 
 func dayOne() {
@@ -578,36 +578,32 @@ func findAllStringStartIndex(re *regexp.Regexp, input string, n int) (map[int]in
 
 func dayEight() {
 	inputData := make(chan string)
-	// go readFileLineByLine("day8Test.txt", inputData)
-	// maxSteps := 10
 	go readFileLineByLine("day8Input.txt", inputData)
 	maxSteps := 1000
 
-	points := make(map[string]Point)
-	index := 0
+	var points []Point
 	for line := range inputData {
-		points[line] = point(line, index)
-		index++
+		points = append(points, point(line))
 	}
 
-	// circuits := make(map[int]*Circuit)
 	var circuits []*Circuit
 	connectionSteps := 0
 	for _, pair := range sortedPairs(points) {
 		if connectionSteps == maxSteps {
-			break
+			a, b, c, _ := largestThreeCircuits(circuits)
+			fmt.Printf("eigth day first answer: %d\n", a.Size()*b.Size()*c.Size())
 		}
 		connectionSteps++
 
 		needsNew := true
-		circuitIdsToBeMerged := findCircuitsToBeMerged(pair, circuits)
-		if len(circuitIdsToBeMerged) == 2 {
-			for _, conn := range circuits[circuitIdsToBeMerged[0]].Connections {
-				circuits[circuitIdsToBeMerged[1]].AddConnection(conn)
+		fromId, toId, err := findCircuitsToBeMerged(pair, circuits)
+		if err == nil {
+			for conn := range circuits[fromId].Connections {
+				circuits[toId].AddConnection(conn)
 			}
 			var newCircuits []*Circuit
-			newCircuits = append(newCircuits, circuits[:circuitIdsToBeMerged[0]]...)
-			newCircuits = append(newCircuits, circuits[circuitIdsToBeMerged[0]+1:]...)
+			newCircuits = append(newCircuits, circuits[:fromId]...)
+			newCircuits = append(newCircuits, circuits[fromId+1:]...)
 			circuits = newCircuits
 			continue
 		}
@@ -624,40 +620,30 @@ func dayEight() {
 			}
 		}
 		if needsNew {
-			circuit := Circuit{len(circuits), make(map[string]Connection)}
+			circuit := Circuit{make(map[Connection]bool)}
 			circuit.AddConnection(pair)
 			circuits = append(circuits, &circuit)
 		}
+
+		if len(circuits) == 1 && circuits[0].Size() == len(points) {
+			fmt.Printf("eigth day second answer: %d\n", pair.Left.X*pair.Right.X)
+			break
+		}
 	}
-
-	// for _, c := range circuits {
-	// 	fmt.Println(c.Print())
-	// }
-	// fmt.Println()
-
-	answer := 1
-	for _, c := range largestThreeCircuits(circuits) {
-		answer *= c.Size()
-		fmt.Println(c.Print())
-	}
-
-	fmt.Printf("eigth day first answer: %d\n", answer)
 }
 
-func point(name string, index int) Point {
-	coords := strings.Split(name, ",")
+func point(line string) Point {
+	coords := strings.Split(line, ",")
 	x, _ := strconv.Atoi(coords[0])
 	y, _ := strconv.Atoi(coords[1])
 	z, _ := strconv.Atoi(coords[2])
-	return Point{index, x, y, z, name}
+	return Point{x, y, z}
 }
 
 type Point struct {
-	Index int
-	X     int
-	Y     int
-	Z     int
-	Name  string
+	X int
+	Y int
+	Z int
 }
 
 type Connection struct {
@@ -666,39 +652,12 @@ type Connection struct {
 	Distance float64
 }
 
-func (c Connection) IsEquivalent(other Connection) bool {
-	if c.Left == other.Left {
-		return c.Right == other.Right
-	}
-	if c.Right == other.Left {
-		return c.Left == other.Right
-	}
-	return false
-}
-
-func (c Connection) GetName() string {
-	if c.Left.X < c.Right.X {
-		return fmt.Sprintf("%s:%s", c.Left.Name, c.Right.Name)
-	}
-	return fmt.Sprintf("%s:%s", c.Right.Name, c.Left.Name)
-}
-
 type Circuit struct {
-	Id          int
-	Connections map[string]Connection
+	Connections map[Connection]bool
 }
 
-func (c Circuit) HasConnection(conn Connection) bool {
-	for _, connection := range c.Connections {
-		if connection.IsEquivalent(conn) {
-			return true
-		}
-	}
-	return false
-}
-
-func (c Circuit) HasPoint(p Point) bool {
-	for _, conn := range c.Connections {
+func (c *Circuit) HasPoint(p Point) bool {
+	for conn := range c.Connections {
 		if conn.Left == p || conn.Right == p {
 			return true
 		}
@@ -707,102 +666,75 @@ func (c Circuit) HasPoint(p Point) bool {
 }
 
 func (c *Circuit) AddConnection(conn Connection) {
-	c.Connections[conn.GetName()] = conn
+	c.Connections[conn] = true
 }
 
-func (c Circuit) Size() int {
-	points := make(map[string]Point)
-	for _, c := range c.Connections {
-		points[c.Left.Name] = c.Left
-		points[c.Right.Name] = c.Right
+func (c *Circuit) Size() int {
+	points := make(map[Point]bool)
+	for c := range c.Connections {
+		points[c.Left] = true
+		points[c.Right] = true
 	}
 	return len(points)
-}
-
-func (c Circuit) Print() string {
-	connNames := make([]string, 0, len(c.Connections))
-	points := make(map[string]bool)
-	for _, c := range c.Connections {
-		connNames = append(connNames, fmt.Sprintf("%d-%d", c.Left.Index, c.Right.Index))
-		points[c.Left.Name] = true
-		points[c.Right.Name] = true
-	}
-	return fmt.Sprintf("[NumberOfPoints: %d, Connections: %s]", len(points), strings.Join(connNames, ", "))
 }
 
 func distance(p1, p2 Point) float64 {
 	return math.Sqrt(math.Pow(float64(p1.X)-float64(p2.X), 2) + math.Pow(float64(p1.Y)-float64(p2.Y), 2) + math.Pow(float64(p1.Z)-float64(p2.Z), 2))
 }
 
-func largestThreeCircuits(circuits []*Circuit) []*Circuit {
-
-	largestCircuits := make([]*Circuit, 0, 3)
-	circuitKeys := make([]int, 0, len(circuits))
-	for key := range circuits {
-		circuitKeys = append(circuitKeys, key)
+func largestThreeCircuits(circuits []*Circuit) (*Circuit, *Circuit, *Circuit, error) {
+	if len(circuits) < 3 {
+		return nil, nil, nil, fmt.Errorf("Too few input")
 	}
 
-	slices.SortStableFunc(circuitKeys, func(k1, k2 int) int {
-		if circuits[k1].Size() < circuits[k2].Size() {
-			return 1
-		}
-		if circuits[k1].Size() > circuits[k2].Size() {
-			return -1
-		}
-		return 0
+	slices.SortStableFunc(circuits, func(c1, c2 *Circuit) int {
+		return c2.Size() - c1.Size()
 	})
 
-	for i := range 3 {
-		largestCircuits = append(largestCircuits, circuits[circuitKeys[i]])
-	}
-
-	return largestCircuits
+	return circuits[0], circuits[1], circuits[2], nil
 }
 
-func sortedPairs(points map[string]Point) []Connection {
-	connections := make(map[string]Connection)
+func sortedPairs(points []Point) []Connection {
+	connections := make(map[Connection]bool)
 	for _, basePoint := range points {
 		for _, point := range points {
-			if point.Name == basePoint.Name {
+			if point == basePoint {
 				continue
 			}
-			connection := Connection{basePoint, point, distance(basePoint, point)}
-			connections[connection.GetName()] = connection
+			var connection Connection
+			if basePoint.X < point.X {
+				connection = Connection{basePoint, point, distance(basePoint, point)}
+			} else {
+				connection = Connection{point, basePoint, distance(basePoint, point)}
+			}
+			connections[connection] = true
 		}
 	}
 
-	sortedConnections := make([]Connection, 0, len(connections))
-	connectionKeys := make([]string, 0, len(connections))
-	for key := range connections {
-		connectionKeys = append(connectionKeys, key)
+	uniqueConnections := make([]Connection, 0, len(connections))
+	for connection := range connections {
+		uniqueConnections = append(uniqueConnections, connection)
 	}
-
-	slices.SortStableFunc(connectionKeys, func(k1, k2 string) int {
-		if connections[k1].Distance < connections[k2].Distance {
-			return -1
-		}
-		if connections[k1].Distance > connections[k2].Distance {
-			return 1
-		}
-		return 0
+	slices.SortStableFunc(uniqueConnections, func(c1, c2 Connection) int {
+		return int(c1.Distance - c2.Distance)
 	})
 
-	for _, connKey := range connectionKeys {
-		sortedConnections = append(sortedConnections, connections[connKey])
-	}
-	return sortedConnections
+	return uniqueConnections
 }
 
-func findCircuitsToBeMerged(connection Connection, circuits []*Circuit) []int {
-	idsToMerge := make([]int, 0, 2)
-	for key := range circuits {
-		c := circuits[key]
+func findCircuitsToBeMerged(connection Connection, circuits []*Circuit) (int, int, error) {
+	left, right := -1, -1
+	var err error = nil
+	for key, c := range circuits {
 		if c.HasPoint(connection.Left) && !c.HasPoint(connection.Right) {
-			idsToMerge = append(idsToMerge, key)
+			left = key
 		}
 		if c.HasPoint(connection.Right) && !c.HasPoint(connection.Left) {
-			idsToMerge = append(idsToMerge, key)
+			right = key
 		}
 	}
-	return idsToMerge
+	if left == -1 || right == -1 {
+		err = fmt.Errorf("No circuits to be merged")
+	}
+	return left, right, err
 }
